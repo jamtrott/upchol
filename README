@@ -1,0 +1,52 @@
+This is the README file for upchol, which is a program for computing
+Cholesky factorizations of symmetric, positive definite, sparse
+matrices. The algorithm implemented in upchol is based on an uplooking
+Cholesky factorisation.
+
+  Copyright (C) 2023 James D. Trotter
+
+  Copying and distribution of this file, with or without modification,
+  are permitted in any medium without royalty provided the copyright
+  notice and this notice are preserved.
+
+
+Building
+--------
+
+The upchol program can be built with `make'. Compilation and linking
+can be configured through the environment variable `CC', which is used
+to choose a compiler, and `CFLAGS' and `LDFLAGS', which are used to
+set compiler flags and linker flags, respectively. Here is an example:
+
+     make CC=gcc CFLAGS="-O3 -march=native"
+
+
+Usage
+-----
+
+The program upchol loads a matrix from a Matrix Market file (see
+https://math.nist.gov/MatrixMarket/formats.html), converts it to
+compressed sparse row (CSR) format, and then performs the Cholesky
+factorisation. More specifically, a matrix A is decomposed into a
+product A=LL' of a lower triangular matrix L, called the Cholesky
+factor, and its (upper triangular) transpose L'. The Cholesky factor L
+is then output in Matrix Market file format.
+
+The following is a basic example:
+
+    $ ./upchol --verbose test.mtx
+    mtxfile_read: 32.034946 seconds (99.7 MB/s)
+    csr_from_coo: 0.772920 seconds, 6,810,586 rows, 115,779,962 nonzeros, 16 nonzeros per row
+    gemv16: 0.011727 seconds (9.5 Gnz/s, 19.7 Gflop/s, 125.4 GB/s)
+
+It is sometimes desirable to only obtain the sparsity pattern of the
+Cholesky factor L, instead of performing a full numerical
+factorisation. This is done with the option `--symbolic'. The output
+is then a binary matrix in Matrix Market format with the same nonzero
+pattern as the Cholesky factor L.
+
+
+Copying
+-------
+
+upchol is free software. See the file COPYING for copying conditions.
