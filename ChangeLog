@@ -1,3 +1,7 @@
+2023-02-27  James D. Trotter  <james@simula.no>
+
+	* upchol.c: add support for loading gzip-compressed matrices
+
 2023-02-25  James D. Trotter  <james@simula.no>
 
         initial version

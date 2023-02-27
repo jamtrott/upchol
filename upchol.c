@@ -897,9 +897,11 @@ static int upcholsymbfact(
 {
     if (N == 0 || *Lsize < 0) return 0;
 
+    struct timespec t0, t1;
     int64_t * xidx = upchol->xidx;
 
     if (progress_interval > 0) {
+        clock_gettime(CLOCK_MONOTONIC, &t0);
         upchol_print_progress = 0;
         signal(SIGALRM, upcholsighandler);
         alarm(progress_interval);
@@ -910,8 +912,9 @@ static int upcholsymbfact(
         int64_t i = *Lsize;
 
         if (progress_interval > 0 && upchol_print_progress) {
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)",
-                    i, N, 100.0*(i/(double)N));
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    i, N, 100.0*(i/(double)N), timespec_duration(t0, t1));
             upchol_print_progress = 0;
             alarm(progress_interval);
         }
@@ -965,7 +968,7 @@ static int upcholsymbfact(
 
                     /* if 'ii' was not found, insert it into the
                      * position found during the binary search */
-                    if (xidx[s] != ii) {
+                    if (s >= xsize || xidx[s] != ii) {
                         for (int64_t l = xsize-1; l >= s; l--) xidx[l+1] = xidx[l];
                         xidx[s] = ii;
                         xsize++;
@@ -994,7 +997,9 @@ static int upcholsymbfact(
                 alarm(0);
                 signal(SIGALRM, SIG_DFL);
                 upchol_print_progress = 0;
-                fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", i, N, 100.0*(i/(double)N));
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                        i, N, 100.0*(i/(double)N), timespec_duration(t0, t1));
             }
             if (rowsize) *rowsize = xsize;
             return ENOMEM;
@@ -1011,7 +1016,9 @@ static int upcholsymbfact(
         alarm(0);
         signal(SIGALRM, SIG_DFL);
         upchol_print_progress = 0;
-        fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", N, N, 100.0);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                N, N, 100.0, timespec_duration(t0, t1));
     }
     return 0;
 }
@@ -1056,11 +1063,13 @@ static int upcholfact(
 {
     if (N == 0 || *Lsize < 0) return 0;
 
+    struct timespec t0, t1;
     double * b = upchol->b;
     double * x = upchol->x;
     int64_t * xidx = upchol->xidx;
 
     if (progress_interval > 0) {
+        clock_gettime(CLOCK_MONOTONIC, &t0);
         upchol_print_progress = 0;
         signal(SIGALRM, upcholsighandler);
         alarm(progress_interval);
@@ -1077,8 +1086,9 @@ static int upcholfact(
         int64_t i = *Lsize;
 
         if (progress_interval > 0 && upchol_print_progress) {
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)",
-                    i, N, 100.0*(i/(double)N));
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    i, N, 100.0*(i/(double)N), timespec_duration(t0, t1));
             upchol_print_progress = 0;
             alarm(progress_interval);
         }
@@ -1123,6 +1133,7 @@ static int upcholfact(
          * lower triangular linear system, and also obtain the
          * positions of those nonzeros.
          */
+
         int64_t xsize = 0;
         for (int64_t k = Arowptr[i]; k < Arowptr[i+1]; k++) xidx[xsize++] = Acolidx[k];
         for (int64_t ii = 0; ii < i; ii++) {
@@ -1143,7 +1154,7 @@ static int upcholfact(
 
                     /* if 'ii' was not found, insert it into the
                      * position found during the binary search */
-                    if (xidx[s] != ii) {
+                    if (s >= xsize || xidx[s] != ii) {
                         for (int64_t l = xsize-1; l >= s; l--) xidx[l+1] = xidx[l];
                         xidx[s] = ii;
                         xsize++;
@@ -1172,7 +1183,9 @@ static int upcholfact(
                 alarm(0);
                 signal(SIGALRM, SIG_DFL);
                 upchol_print_progress = 0;
-                fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", i, N, 100.0*(i/(double)N));
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                        i, N, 100.0*(i/(double)N), timespec_duration(t0, t1));
             }
             if (rowsize) *rowsize = xsize;
             return ENOMEM;
@@ -1211,7 +1224,9 @@ static int upcholfact(
         alarm(0);
         signal(SIGALRM, SIG_DFL);
         upchol_print_progress = 0;
-        fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", N, N, 100.0);
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                N, N, 100.0, timespec_duration(t0, t1));
     }
     return 0;
 }
@@ -1492,9 +1507,8 @@ int main(int argc, char *argv[])
     if (args.verbose > 0) {
         clock_gettime(CLOCK_MONOTONIC, &t1);
         fprintf(stderr, "%'.6f seconds, %'"PRId64" rows, %'"PRId64" columns, %'"PRId64" nonzeros"
-                ", %'"PRId64" to %'"PRId64" nonzeros per row",
+                ", %'"PRId64" to %'"PRId64" nonzeros per row\n",
                 timespec_duration(t0, t1), num_rows, num_columns, Asize+Adiagsize, rowsizemin, rowsizemax);
-        fputc('\n', stderr);
     }
 
     /* 4. prepare for Cholesky factorisation */
@@ -1570,13 +1584,13 @@ int main(int argc, char *argv[])
 
     if (args.verbose > 0) {
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        fprintf(stderr, "%'.6f seconds, %'.3f MB initial allocation for cholesky factor\n",
-                timespec_duration(t0, t1), 1.0e-6*Lallocsize*Lelemsize);
+        fprintf(stderr, "%'.6f seconds, %'.3f MB initial allocation for cholesky factor (fill-ratio: %'.3f) \n",
+                timespec_duration(t0, t1), 1.0e-6*Lallocsize*Lelemsize, args.fillfactor);
     }
 
     /* 5. perform Cholesky factorisation */
     if (args.verbose > 0 || args.progress_interval > 0) {
-        fprintf(stderr, "cholesky factorisation: ");
+        fprintf(stderr, "cholesky factorisation:\n");
         clock_gettime(CLOCK_MONOTONIC, &t0);
     }
 
@@ -1595,7 +1609,6 @@ int main(int argc, char *argv[])
                 Ad, Arowptr, Acolidx, A,
                 args.verbose, args.progress_interval, &rowsize);
             if (err == EINVAL) {
-                if (args.verbose > 0 || args.progress_interval > 0) fprintf(stderr, "\n");
                 fprintf(stderr, "%s: non-positive definite matrix - "
                         "square root of negative diagonal value %.*g in row %'"PRId64" of cholesky factor\n",
                         program_invocation_short_name, DBL_DIG, Ld[i], i+1);
@@ -1637,12 +1650,7 @@ int main(int argc, char *argv[])
                 memcpy(L, tmp, Lrowptr[i]*sizeof(double));
                 free(tmp);
             }
-            if (args.verbose > 0 || args.progress_interval > 0) {
-                fprintf(stderr, "resuming cholesky factorisation: ");
-                clock_gettime(CLOCK_MONOTONIC, &t0);
-            }
         } else if (err) {
-            if (args.verbose > 0) fprintf(stderr, "\n");
             fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(err));
             upchol_free(&upchol);
             free(Ld); free(L); free(Lcolidx); free(Lrowptr);
@@ -1655,10 +1663,10 @@ int main(int argc, char *argv[])
 
     if (args.verbose > 0) {
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        if (args.progress_interval > 0) fprintf(stderr, "completed cholesky factorisation in ");
-        fprintf(stderr, "%'.6f seconds, %'.3f Mnz/s, %'.3f Mflop/s,"
-                " %'"PRId64" nonzeros, %'"PRId64" fill-in (nonzeros), %'.3f fill-ratio,"
-                " %'.3f MB unused\n",
+        fprintf(stderr, "completed cholesky factorisation in "
+                "%'.6f seconds, %'.3f Mnz/s, %'.3f Mflop/s,"
+                " %'"PRId64" nonzeros, %'"PRId64" fill-in (nonzeros), "
+                "%'.3f fill-ratio, %'.3f MB unused\n",
                 timespec_duration(t0, t1),
                 (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1),
                 (double) num_flops * 1e-6 / (double) timespec_duration(t0, t1),
@@ -1676,12 +1684,13 @@ int main(int argc, char *argv[])
     if (args.verify && !args.symbolic) {
         if (args.verbose > 0 || args.progress_interval > 0) {
             fprintf(stderr, "verifying results - counting nonzeros in B=LL': ");
+            if (args.progress_interval > 0) fputc('\n', stderr);
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
 
         int64_t * Browptr = malloc((num_rows+1) * sizeof(int64_t));
         if (!Browptr) {
-            if (args.verbose > 0) fprintf(stderr, "\n");
+            if (args.verbose > 0 && !args.progress_interval) fprintf(stderr, "\n");
             fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
             free(Ld); free(L); free(Lcolidx); free(Lrowptr);
             free(Ad); free(A); free(Acolidx); free(Arowptr);
@@ -1700,8 +1709,9 @@ int main(int argc, char *argv[])
         int64_t Bsize = 0;
         for (int64_t i = 0; i < num_rows; i++) {
             if (args.progress_interval > 0 && upchol_print_progress) {
-                fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)",
-                        i, num_rows, 100.0*(i/(double)num_rows));
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                        i, num_rows, 100.0*(i/(double)num_rows), timespec_duration(t0, t1));
                 upchol_print_progress = 0;
                 alarm(args.progress_interval);
             }
@@ -1724,13 +1734,15 @@ int main(int argc, char *argv[])
         if (args.progress_interval > 0) {
             alarm(0);
             signal(SIGALRM, SIG_DFL);
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", num_rows, num_rows, 100.0);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    num_rows, num_rows, 100.0, timespec_duration(t0, t1));
             upchol_print_progress = 0;
         }
 
         int64_t * Bcolidx = malloc(Bsize * sizeof(int64_t));
         if (!Bcolidx) {
-            if (args.verbose > 0) fprintf(stderr, "\n");
+            if (args.verbose > 0 && !args.progress_interval) fprintf(stderr, "\n");
             fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
             free(Browptr);
             free(Ld); free(L); free(Lcolidx); free(Lrowptr);
@@ -1740,7 +1752,7 @@ int main(int argc, char *argv[])
         }
         double * B = malloc(Bsize * sizeof(double));
         if (!B) {
-            if (args.verbose > 0) fprintf(stderr, "\n");
+            if (args.verbose > 0 && !args.progress_interval) fprintf(stderr, "\n");
             fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
             free(Bcolidx); free(Browptr);
             free(Ld); free(L); free(Lcolidx); free(Lrowptr);
@@ -1751,7 +1763,7 @@ int main(int argc, char *argv[])
         int64_t Bdiagsize = num_rows;
         double * Bd = malloc(Bdiagsize * sizeof(double));
         if (!Bd) {
-            if (args.verbose > 0) fprintf(stderr, "\n");
+            if (args.verbose > 0 && !args.progress_interval) fprintf(stderr, "\n");
             fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
             free(B); free(Bcolidx); free(Browptr);
             free(Ld); free(L); free(Lcolidx); free(Lrowptr);
@@ -1779,6 +1791,7 @@ int main(int argc, char *argv[])
 
         if (args.verbose > 0 || args.progress_interval > 0) {
             fprintf(stderr, "verifying results - computing column offsets in B=LL': ");
+            if (args.progress_interval > 0) fputc('\n', stderr);
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
 
@@ -1791,8 +1804,9 @@ int main(int argc, char *argv[])
         /* compute column offsets for offdiagonal nonzeros in B=LL' */
         for (int64_t i = 0; i < num_rows; i++) {
             if (args.progress_interval > 0 && upchol_print_progress) {
-                fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n",
-                        i, num_rows, 100.0*(i/(double)num_rows));
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                        i, num_rows, 100.0*(i/(double)num_rows), timespec_duration(t0, t1));
                 upchol_print_progress = 0;
                 alarm(args.progress_interval);
             }
@@ -1819,7 +1833,9 @@ int main(int argc, char *argv[])
         if (args.progress_interval > 0) {
             alarm(0);
             signal(SIGALRM, SIG_DFL);
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", num_rows, num_rows, 100.0);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    num_rows, num_rows, 100.0, timespec_duration(t0, t1));
             upchol_print_progress = 0;
         }
 
@@ -1831,6 +1847,7 @@ int main(int argc, char *argv[])
 
         if (args.verbose > 0 || args.progress_interval > 0) {
             fprintf(stderr, "verifying results - computing B=LL': ");
+            if (args.progress_interval > 0) fputc('\n', stderr);
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
 
@@ -1843,8 +1860,9 @@ int main(int argc, char *argv[])
         /* compute matrix-vector product B=LL' */
         for (int64_t i = 0; i < num_rows; i++) {
             if (args.progress_interval > 0 && upchol_print_progress) {
-                fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n",
-                        i, num_rows, 100.0*(i/(double)num_rows));
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                        i, num_rows, 100.0*(i/(double)num_rows), timespec_duration(t0, t1));
                 upchol_print_progress = 0;
                 alarm(args.progress_interval);
             }
@@ -1877,7 +1895,9 @@ int main(int argc, char *argv[])
         if (args.progress_interval > 0) {
             alarm(0);
             signal(SIGALRM, SIG_DFL);
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", num_rows, num_rows, 100.0);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    num_rows, num_rows, 100.0, timespec_duration(t0, t1));
             upchol_print_progress = 0;
         }
 
@@ -1906,6 +1926,7 @@ int main(int argc, char *argv[])
 
         if (args.verbose > 0 || args.progress_interval > 0) {
             fprintf(stderr, "verifying results - computing error: ");
+            if (args.progress_interval > 0) fputc('\n', stderr);
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
 
@@ -1956,7 +1977,9 @@ int main(int argc, char *argv[])
         if (args.progress_interval > 0) {
             alarm(0);
             signal(SIGALRM, SIG_DFL);
-            fprintf(stderr, "\n%'"PRId64" of %'"PRId64" rows (%4.1f %%)\n", num_rows, num_rows, 100.0);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    i, num_rows, 100.0*(i/(double)num_rows), timespec_duration(t0, t1));
             upchol_print_progress = 0;
         }
 
