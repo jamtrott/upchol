@@ -31,6 +31,8 @@
 #include <omp.h>
 #endif
 
+#include <zlib.h>
+
 #include <unistd.h>
 
 #include <float.h>
@@ -62,6 +64,7 @@ const char * program_invocation_short_name;
 struct program_options
 {
     char * Apath;
+    int gzip;
     double fillfactor;
     double growthfactor;
     bool symbolic;
@@ -80,6 +83,7 @@ static int program_options_init(
     struct program_options * args)
 {
     args->Apath = NULL;
+    args->gzip = 0;
     args->fillfactor = 15.0;
     args->growthfactor = 2.0;
     args->symbolic = false;
@@ -138,6 +142,7 @@ static void program_options_print_help(
     fprintf(f, "  --progress N          print progress every N seconds. [0]\n");
     fprintf(f, "\n");
     fprintf(f, " Other options are:\n");
+    fprintf(f, "  -z, --gzip, --gunzip, --ungzip    filter files through gzip\n");
     fprintf(f, "  -q, --quiet           do not print Matrix Market output\n");
     fprintf(f, "  -v, --verbose         be more verbose\n");
     fprintf(f, "\n");
@@ -340,6 +345,15 @@ static int parse_program_options(
             (*nargs)++; argv++; continue;
         }
 
+        if (strcmp(argv[0], "-z") == 0 ||
+            strcmp(argv[0], "--gzip") == 0 ||
+            strcmp(argv[0], "--gunzip") == 0 ||
+            strcmp(argv[0], "--ungzip") == 0)
+        {
+            args->gzip = 1;
+            (*nargs)++; argv++; continue;
+        }
+
         if (strcmp(argv[0], "-q") == 0 || strcmp(argv[0], "--quiet") == 0) {
             args->quiet = 1;
             (*nargs)++; argv++; continue;
@@ -371,7 +385,7 @@ static int parse_program_options(
         }
 
         /*
-         * Parse positional arguments.
+         * parse positional arguments
          */
         if (*nposargs == 0) {
             args->Apath = strdup(argv[0]);
@@ -398,10 +412,17 @@ static double timespec_duration(
 /**
  * ‘freadline()’ reads a single line from a stream.
  */
-static int freadline(char * linebuf, size_t line_max, FILE * f) {
-    char * s = fgets(linebuf, line_max+1, f);
-    if (!s && feof(f)) return -1;
-    else if (!s) return errno;
+static int freadline(char * linebuf, size_t line_max, int gzip, FILE * f, gzFile gzf) {
+    char * s;
+    if (!gzip) {
+        s = fgets(linebuf, line_max+1, f);
+        if (!s && feof(f)) return -1;
+        else if (!s) return errno;
+    } else {
+        s = gzgets(gzf, linebuf, line_max+1);
+        if (!s && gzeof(gzf)) return -1;
+        else if (!s) return errno;
+    }
     int n = strlen(s);
     if (n > 0 && n == line_max && s[n-1] != '\n') return EOVERFLOW;
     return 0;
@@ -432,7 +453,9 @@ static int mtxfile_fread_header(
     int64_t * num_rows,
     int64_t * num_columns,
     int64_t * num_nonzeros,
+    int gzip,
     FILE * f,
+    gzFile gzf,
     int64_t * lines_read,
     int64_t * bytes_read)
 {
@@ -441,7 +464,7 @@ static int mtxfile_fread_header(
     if (!linebuf) return errno;
 
     /* read and parse header line */
-    int err = freadline(linebuf, line_max, f);
+    int err = freadline(linebuf, line_max, gzip, f, gzf);
     if (err) { free(linebuf); return err; }
     char * s = linebuf;
     char * t = s;
@@ -486,7 +509,7 @@ static int mtxfile_fread_header(
     /* skip lines starting with '%' */
     do {
         if (lines_read) (*lines_read)++;
-        err = freadline(linebuf, line_max, f);
+        err = freadline(linebuf, line_max, gzip, f, gzf);
         if (err) { free(linebuf); return err; }
         s = t = linebuf;
     } while (linebuf[0] == '%');
@@ -524,7 +547,9 @@ static int mtxfile_fread_matrix_coordinate_real(
     int64_t * rowidx,
     int64_t * colidx,
     double * a,
+    int gzip,
     FILE * f,
+    gzFile gzf,
     int64_t * lines_read,
     int64_t * bytes_read)
 {
@@ -532,7 +557,7 @@ static int mtxfile_fread_matrix_coordinate_real(
     char * linebuf = malloc(line_max+1);
     if (!linebuf) return errno;
     for (int64_t i = 0; i < num_nonzeros; i++) {
-        int err = freadline(linebuf, line_max, f);
+        int err = freadline(linebuf, line_max, gzip, f, gzf);
         if (err) { free(linebuf); return err; }
         char * s = linebuf;
         char * t = s;
@@ -975,7 +1000,7 @@ static int upcholsymbfact(
             return ENOMEM;
         }
 
-	/* add the solution of the i-by-i lower triangular linear
+        /* add the solution of the i-by-i lower triangular linear
          * system as the (i+1)-th row of the Cholesky factor L */
         Lrowptr[i+1] = Lrowptr[i] + xsize;
         for (int64_t k = 0; k < xsize; k++) Lcolidx[Lrowptr[i]+k] = xidx[k];
@@ -1162,7 +1187,7 @@ static int upcholfact(
         fprintf(stderr, "]\n");
 #endif
 
-	/* add the solution of the i-by-i lower triangular linear
+        /* add the solution of the i-by-i lower triangular linear
          * system as the (i+1)-th row of the Cholesky factor L */
         Lrowptr[i+1] = Lrowptr[i] + xsize;
         for (int64_t k = 0; k < xsize; k++) {
@@ -1246,11 +1271,49 @@ int main(int argc, char *argv[])
     }
 
     FILE * f;
-    if ((f = fopen(args.Apath, "r")) == NULL) {
-        fprintf(stderr, "%s: %s: %s\n",
-                program_invocation_short_name, args.Apath, strerror(errno));
-        program_options_free(&args);
-        return EXIT_FAILURE;
+    gzFile gzf;
+    if (strcmp(args.Apath, "-") == 0) {
+        int fd = dup(STDIN_FILENO);
+        if (fd == -1) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s: %s\n",
+                    program_invocation_short_name, args.Apath, strerror(errno));
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        if (!args.gzip) {
+            if ((f = fdopen(fd, "r")) == NULL) {
+                if (args.verbose > 0) fprintf(stderr, "\n");
+                fprintf(stderr, "%s: %s: %s\n",
+                        program_invocation_short_name, args.Apath, strerror(errno));
+                close(fd);
+                program_options_free(&args);
+                return EXIT_FAILURE;
+            }
+        } else {
+            if ((gzf = gzdopen(fd, "r")) == NULL) {
+                if (args.verbose > 0) fprintf(stderr, "\n");
+                fprintf(stderr, "%s: %s: %s\n",
+                        program_invocation_short_name, args.Apath, strerror(errno));
+                close(fd);
+                program_options_free(&args);
+                return EXIT_FAILURE;
+            }
+        }
+    } else if (!args.gzip) {
+        if ((f = fopen(args.Apath, "r")) == NULL) {
+            fprintf(stderr, "%s: %s: %s\n",
+                    program_invocation_short_name, args.Apath, strerror(errno));
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+    } else {
+        if ((gzf = gzopen(args.Apath, "r")) == NULL) {
+            fprintf(stderr, "%s: %s: %s\n",
+                    program_invocation_short_name, args.Apath, strerror(errno));
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
     }
 
     enum mtxobject object;
@@ -1264,13 +1327,13 @@ int main(int argc, char *argv[])
     err = mtxfile_fread_header(
         &object, &format, &symmetry,
         &num_rows, &num_columns, &num_nonzeros,
-        f, &lines_read, &bytes_read);
+        args.gzip, f, gzf, &lines_read, &bytes_read);
     if (err) {
         if (args.verbose > 0) fprintf(stderr, "\n");
         fprintf(stderr, "%s: %s:%"PRId64": %s\n",
                 program_invocation_short_name,
                 args.Apath, lines_read+1, strerror(err));
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
@@ -1280,7 +1343,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "%s: %s: %s\n",
                 program_invocation_short_name, args.Apath,
                 "expected square, symmetric matrix");
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
@@ -1289,7 +1352,7 @@ int main(int argc, char *argv[])
     if (!mtxrowidx) {
         if (args.verbose > 0) fprintf(stderr, "\n");
         fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
@@ -1298,7 +1361,7 @@ int main(int argc, char *argv[])
         if (args.verbose > 0) fprintf(stderr, "\n");
         fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
         free(mtxrowidx);
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
@@ -1307,20 +1370,20 @@ int main(int argc, char *argv[])
         if (args.verbose > 0) fprintf(stderr, "\n");
         fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
         free(mtxcolidx); free(mtxrowidx);
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
     err = mtxfile_fread_matrix_coordinate_real(
         num_rows, num_columns, num_nonzeros, mtxrowidx, mtxcolidx, mtxa,
-        f, &lines_read, &bytes_read);
+        args.gzip, f, gzf, &lines_read, &bytes_read);
     if (err) {
         if (args.verbose > 0) fprintf(stderr, "\n");
         fprintf(stderr, "%s: %s:%"PRId64": %s\n",
                 program_invocation_short_name,
                 args.Apath, lines_read+1, strerror(err));
         free(mtxa); free(mtxcolidx); free(mtxrowidx);
-        fclose(f);
+        if (args.gzip) gzclose(gzf); else fclose(f);
         program_options_free(&args);
         return EXIT_FAILURE;
     }
@@ -1331,7 +1394,7 @@ int main(int argc, char *argv[])
                 timespec_duration(t0, t1),
                 1.0e-6 * bytes_read / timespec_duration(t0, t1));
     }
-    fclose(f);
+    if (args.gzip) gzclose(gzf); else fclose(f);
 
     /* 3. convert to compressed sparse row format. */
     if (args.verbose > 0) {
