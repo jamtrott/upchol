@@ -1532,7 +1532,7 @@ int main(int argc, char *argv[])
                 Ad, Arowptr, Acolidx, A,
                 args.verbose, args.progress_interval, &rowsize);
             if (err == EINVAL) {
-                if (args.verbose > 0) fprintf(stderr, "\n");
+                if (args.verbose > 0 || args.progress_interval > 0) fprintf(stderr, "\n");
                 fprintf(stderr, "%s: non-positive definite matrix - "
                         "square root of negative diagonal value %.*g in row %'"PRId64" of cholesky factor\n",
                         program_invocation_short_name, DBL_DIG, Ld[i], i+1);
@@ -1573,6 +1573,10 @@ int main(int argc, char *argv[])
                 }
                 memcpy(L, tmp, Lrowptr[i]*sizeof(double));
                 free(tmp);
+            }
+            if (args.verbose > 0 || args.progress_interval > 0) {
+                fprintf(stderr, "resuming cholesky factorisation: ");
+                clock_gettime(CLOCK_MONOTONIC, &t0);
             }
         } else if (err) {
             if (args.verbose > 0) fprintf(stderr, "\n");
