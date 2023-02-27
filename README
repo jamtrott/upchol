@@ -34,16 +34,99 @@ is then output in Matrix Market file format.
 
 The following is a basic example:
 
-    $ ./upchol --verbose test.mtx
-    mtxfile_read: 32.034946 seconds (99.7 MB/s)
-    csr_from_coo: 0.772920 seconds, 6,810,586 rows, 115,779,962 nonzeros, 16 nonzeros per row
-    gemv16: 0.011727 seconds (9.5 Gnz/s, 19.7 Gflop/s, 125.4 GB/s)
+    $ ./upchol test.mtx
+    %%MatrixMarket matrix coordinate real general
+    11 11 33
+    1 1 2
+    2 2 2.82842712474619
+    3 2 1.06066017177982
+    3 3 3.72491610643783
+    4 4 4
+    5 5 4.47213595499958
+    6 1 0.5
+    6 4 1.75
+    6 6 5.35607132140714
+    7 1 1
+    7 6 -0.0933520056018673
+    7 7 3.8718581331255
+    8 2 1.41421356237309
+    8 3 -0.402693633128415
+    8 5 2.01246117974981
+    8 8 6.06529783587235
+    9 6 2.05374412324108
+    9 7 0.0495165696432269
+    9 9 2.78920834388245
+    10 3 1.34231211042805
+    10 4 2
+    10 6 1.58698409523174
+    10 7 0.0382628038152208
+    10 8 2.39733331058247
+    10 9 -1.16920412532172
+    10 10 6.36898503286248
+    11 3 1.61077453251366
+    11 5 2.23606797749979
+    11 7 3.35756103478562
+    11 8 1.83810407177559
+    11 9 -0.0596064848203229
+    11 10 1.44970161234368
+    11 11 6.05379013730673
 
 It is sometimes desirable to only obtain the sparsity pattern of the
 Cholesky factor L, instead of performing a full numerical
 factorisation. This is done with the option `--symbolic'. The output
 is then a binary matrix in Matrix Market format with the same nonzero
 pattern as the Cholesky factor L.
+
+    $ ./upchol test.mtx --symbolic
+    %%MatrixMarket matrix coordinate pattern general
+    11 11 33
+    1 1
+    2 2
+    3 2
+    3 3
+    4 4
+    5 5
+    6 1
+    6 4
+    6 6
+    7 1
+    7 6
+    7 7
+    8 2
+    8 3
+    8 5
+    8 8
+    9 6
+    9 7
+    9 9
+    10 3
+    10 4
+    10 6
+    10 7
+    10 8
+    10 9
+    10 10
+    11 3
+    11 5
+    11 7
+    11 8
+    11 9
+    11 10
+    11 11
+
+Furthermore, in some cases, it may be convenient to suppress the
+output of the Cholesky factor itself, while displaying some more
+information about the factorisation procedure. For example:
+
+    $ ./upchol test.mtx --verbose -q --verify
+    read matrix: 0.000710 seconds (0.3 MB/s)
+    convert to csr: 0.000003 seconds, 11 rows, 11 columns, 27 nonzeros, 1 to 6 nonzeros per row
+    allocating storage for cholesky factorisation: 0.000003 seconds, 0.004 MB initial allocation for cholesky factor
+    cholesky factorisation: 0.000005 seconds, 5.356 Mnz/s, 0.000 Mflop/s, 33 nonzeros, 6 fill-in (nonzeros), 1.375 fill-ratio, 0.003 MB unused
+    verifying results - counting nonzeros in B=LL': 0.000243 seconds
+    verifying results - computing column offsets in B=LL': 0.000003 seconds
+    verifying results - computing B=LL': 0.000005 seconds
+    verifying results - computing error: 0.000002 seconds, 1.4210854715202e-14 max-norm error, 2.24036497082767e-28 Frobenius-norm error
 
 
 Copying
