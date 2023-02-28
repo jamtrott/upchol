@@ -1533,7 +1533,8 @@ int main(int argc, char *argv[])
 
     int64_t Ldiagsize = num_rows;
     int64_t Lallocsize = (int64_t) (args.fillfactor * (double) Asize);
-    int Lelemsize = sizeof(int64_t) + args.symbolic ? 0 : sizeof(double);
+    int Lelemsize = sizeof(int64_t);
+    if (!args.symbolic) Lelemsize += sizeof(double);
     int64_t * Lcolidx = malloc(Lallocsize * sizeof(int64_t));
     if (!Lcolidx) {
         if (args.verbose > 0) fprintf(stderr, "\n");
