@@ -928,7 +928,7 @@ static int permute_etree(
 
     /* if needed, sort the edges of every vertex */
 #ifdef _OPENMP
-    #pragma omp for
+    #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < N; i++) {
         bool sorted = true;
@@ -985,7 +985,7 @@ static int permute(
 
     /* if needed, sort the edges of every vertex */
 #ifdef _OPENMP
-    #pragma omp for
+    #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < N; i++) {
         bool sorted = true;
@@ -1740,11 +1740,12 @@ int main(int argc, char *argv[])
 
     /* if requested, compute fill-in and exit */
     if (args.fillcount) {
+        free(Ad); free(A);
+
         if (args.verbose > 0) {
-            fprintf(stderr, "computing fill-in: ");
+            fprintf(stderr, "computing elimination tree: ");
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
-        free(Ad); free(A);
 
         /* compute the elimination tree */
         int64_t * parent = malloc(num_rows * sizeof(int64_t));
@@ -1775,6 +1776,15 @@ int main(int argc, char *argv[])
         }
         etree(num_rows, parent, childptr, child, Arowptr, Acolidx);
 
+        if (args.verbose > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "%'.6f seconds, %'.3f Mnz/s\n",
+                    timespec_duration(t0, t1),
+                    (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1));
+            fprintf(stderr, "post-ordering elimination tree: ");
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+        }
+
         /* compute a postorder of the elimination tree */
         int64_t * perm = malloc(num_rows * sizeof(int64_t));
         if (!perm) {
@@ -1804,6 +1814,15 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
 
+        if (args.verbose > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "%'.6f seconds, %'.3f Mrow/s\n",
+                    timespec_duration(t0, t1),
+                    (double) num_rows * 1e-6 / (double) timespec_duration(t0, t1));
+            fprintf(stderr, "permuting elimination tree based on post-ordering: ");
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+        }
+
         /* permute the elimination tree according to the
          * post-ordering */
         int64_t * origparent = parent;
@@ -1818,6 +1837,15 @@ int main(int argc, char *argv[])
         }
         permute_etree(num_rows, parent, childptr, child, perm, origparent);
         free(origparent);
+
+        if (args.verbose > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "%'.6f seconds, %'.3f Mrow/s\n",
+                    timespec_duration(t0, t1),
+                    (double) num_rows * 1e-6 / (double) timespec_duration(t0, t1));
+            fprintf(stderr, "permuting matrix based on post-ordering: ");
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+        }
 
         /* permute the rows and columns of the matrix according to the
          * post-ordering of the elimination tree */
@@ -1843,20 +1871,32 @@ int main(int argc, char *argv[])
         permute(num_rows, Browptr, Bcolidx, perm, Arowptr, Acolidx);
         free(perm); free(Acolidx); free(Arowptr);
 
+        if (args.verbose > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "%'.6f seconds, %'.3f Mnz/s\n",
+                    timespec_duration(t0, t1),
+                    (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1));
+        }
+
         /*
-         * compute the row counts
+         * compute the row counts; see
          *
-         * John R. Gilbert, Esmond G. Ng, and Barry W. Peyton
-         * (1994). “An Efficient Algorithm to Compute Row and Column
-         * Counts for Sparse Cholesky Factorization.” SIAM Journal on
-         * Matrix Analysis and Applications, vol. 15, no. 4.
-         * DOI: 10.1137/S089547989223692.
+         *   John R. Gilbert, Esmond G. Ng, and Barry W. Peyton
+         *   (1994). “An Efficient Algorithm to Compute Row and Column
+         *   Counts for Sparse Cholesky Factorization.” SIAM Journal
+         *   on Matrix Analysis and Applications, vol. 15, no. 4.
+         *   DOI: 10.1137/S089547989223692.
          *
-         * Davis, Timothy A., Rajamanickam, Sivasankaran, and
-         * Sid-Lakhdar, Wissam M. (2016). “A survey of direct methods
-         * for sparse linear systems”. Acta numerica, vol. 25,
-         * pp. 383–566. DOI: 10.1017/S0962492916000076.
+         *   Davis, Timothy A., Rajamanickam, Sivasankaran, and
+         *   Sid-Lakhdar, Wissam M. (2016). “A survey of direct
+         *   methods for sparse linear systems”. Acta numerica,
+         *   vol. 25, pp. 383–566. DOI: 10.1017/S0962492916000076.
          */
+        if (args.verbose > 0) {
+            fprintf(stderr, "computing fill-in: ");
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+        }
+
         int64_t * rowcounts = malloc(num_rows * sizeof(int64_t));
         if (!rowcounts) {
             if (args.verbose > 0) fprintf(stderr, "\n");
@@ -1868,6 +1908,9 @@ int main(int argc, char *argv[])
         }
         int64_t Ldiagsize = num_rows;
         int64_t Loffdiagsize = 0;
+#ifdef _OPENMP
+#pragma omp parallel for reduction(+:Loffdiagsize)
+#endif
         for (int64_t u = 0; u < num_rows; u++) {
             rowcounts[u] = 1;
             for (int64_t l = Browptr[u]; l < Browptr[u+1]; l++) {
