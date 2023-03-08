@@ -67,6 +67,7 @@ struct program_options
     int gzip;
     double fillfactor;
     double growthfactor;
+    bool fillcount;
     bool symbolic;
     int verify;
     int progress_interval;
@@ -86,6 +87,7 @@ static int program_options_init(
     args->gzip = 0;
     args->fillfactor = 15.0;
     args->growthfactor = 2.0;
+    args->fillcount = false;
     args->symbolic = false;
     args->verify = 0;
     args->quiet = 0;
@@ -137,6 +139,7 @@ static void program_options_print_help(
     fprintf(f, "  --fill-factor NUM     estimated ratio of nonzeros in L to A. [15.0]\n");
     fprintf(f, "  --growth-factor NUM   factor used to increase storage for L\n");
     fprintf(f, "                        when estimated fill is exceeded. [2.0]\n");
+    fprintf(f, "  --fill-count          compute the amount of fill-in and exit\n");
     fprintf(f, "  --symbolic            perform symbolic factorisation only\n");
     fprintf(f, "  --verify              compute the error ‖A-LL'‖\n");
     fprintf(f, "  --progress N          print progress every N seconds. [0]\n");
@@ -323,6 +326,10 @@ static int parse_program_options(
             (*nargs)++; argv++; continue;
         }
 
+        if (strcmp(argv[0], "--fill-count") == 0) {
+            args->fillcount = true;
+            (*nargs)++; argv++; continue;
+        }
         if (strcmp(argv[0], "--symbolic") == 0) {
             args->symbolic = true;
             (*nargs)++; argv++; continue;
@@ -759,21 +766,241 @@ static int csr_from_coo(
         bool sorted = true;
         for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
             if (csrcolidx[k-1] >= csrcolidx[k]) { sorted = false; break; }
-            if (sorted) continue;
-
-            fprintf(stderr, "%s: sorting row %'"PRId64"\n", program_invocation_short_name, i+1);
-            for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
-                int64_t j = csrcolidx[k];
-                double x = csra[k];
-                int64_t l = k-1;
-                while (l >= rowptr[i] && csrcolidx[l] > j) {
-                    csrcolidx[l+1] = csrcolidx[l];
-                    csra[l+1] = csra[l];
-                    l--;
-                }
-                csrcolidx[l+1] = j;
-                csra[l+1] = x;
+        }
+        if (sorted) continue;
+        fprintf(stderr, "%s: sorting row %'"PRId64"\n", program_invocation_short_name, i+1);
+        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
+            int64_t j = csrcolidx[k];
+            double x = csra[k];
+            int64_t l = k-1;
+            while (l >= rowptr[i] && csrcolidx[l] > j) {
+                csrcolidx[l+1] = csrcolidx[l];
+                csra[l+1] = csra[l];
+                l--;
             }
+            csrcolidx[l+1] = j;
+            csra[l+1] = x;
+        }
+    }
+    return 0;
+}
+
+/**
+ * ‘etree()’ computes an elimination tree for a given symmetric,
+ * sparse matrix.
+ *
+ * The sparsity pattern of the N-by-N matrix A must be provided with
+ * its lower triangular entries in compressed sparse row (CSR) format.
+ * Thus, ‘Arowptr’ and ‘Acolidx’ are arrays containing row pointers
+ * and column offsets, respectively. Moreover, ‘Arowptr’ is an array
+ * of length ‘N+1’, whereas ‘Acolidx’ is an array of length
+ * ‘Arowptr[N]’.
+ *
+ * If successful, the parent of each node in the elimination tree is
+ * stored in the ‘parent’ array. Moreover, ‘childptr[i]’ points to
+ * location of the first child of the ‘i’th node in the array ‘child’.
+ * The final entry, ‘childptr[N]’ points one place beyond the last
+ * child node of the final node in the elimination tree. In other
+ * words, the arrays ‘parent’ and ‘child’ must be of length ‘N’,
+ * whereas ‘childptr’ must be of length ‘N+1’.
+ */
+static int etree(
+    int64_t N,
+    int64_t * parent,
+    int64_t * childptr,
+    int64_t * child,
+    const int64_t * Arowptr,
+    const int64_t * Acolidx)
+{
+    /*
+     * compute parent node in the elimination tree:
+     *
+     * for each a_ki != 0, where k>i, it suffices to ensure that i is
+     * a descendant of k in the next tree T_k.
+     */
+    for (int64_t k = 0; k < N; k++) {
+        parent[k] = -1;
+        for (int64_t l = Arowptr[k]; l < Arowptr[k+1]; l++) {
+            int64_t i = Acolidx[l];
+            int64_t t = i;
+            while (parent[t] >= 0 && parent[t] < k) { t = parent[t]; }
+            parent[t] = k;
+        }
+    }
+
+    /* reverse edges to obtain children of each node */
+    for (int64_t k = 0; k <= N; k++) childptr[k] = 0;
+    for (int64_t k = 0; k < N; k++) { if (parent[k] >= 0) childptr[parent[k]+1]++; }
+    for (int64_t k = 1; k <= N; k++) childptr[k] += childptr[k-1];
+    for (int64_t k = 0; k < N; k++) {
+        if (parent[k] < 0) continue;
+        child[childptr[parent[k]]] = k;
+        childptr[parent[k]]++;
+    }
+    for (int64_t k = N; k > 0; k--) childptr[k] = childptr[k-1];
+    childptr[0] = 0;
+    return 0;
+}
+
+/**
+ * ‘postorder()’ computes a post-ordering of a given tree.
+ *
+ * The tree consists of N nodes whose children are given by the
+ * ‘child’ array. The children of the ‘i’th node are located at
+ * offsets ‘childptr[i]’, ‘childptr[i]+1’, ... ‘childptr[i+1]-1’.
+ *
+ * If successful, a permutation which places the nodes of the tree in
+ * post-order is stored in the array ‘perm’, which must be of length
+ * ‘N’.
+ */
+static int postorder(
+    int64_t N,
+    int64_t * perm,
+    int64_t * level,
+    const int64_t * parent,
+    const int64_t * childptr,
+    const int64_t * child)
+{
+    int64_t * stack = malloc(N * sizeof(int64_t));
+    if (!stack) return errno;
+
+    for (int64_t k = 0, n = 0; k < N; k++) {
+        if (parent[k] >= 0) continue;
+
+        /* found a root node in the elimination tree (which may
+         * actually be a forest) */
+        int64_t prev = -1, p = 0;
+        stack[0] = k;
+        int64_t stacksize = 1;
+        while (stacksize > 0) {
+            int64_t v = stack[stacksize-1];
+            if (childptr[v] == childptr[v+1]) {
+                /* this is a leaf node; pop it off the stack */
+                level[n] = p;
+                perm[v] = n++;
+                stacksize--;
+                prev = v;
+            } else if (prev >= 0 && v == parent[prev]) {
+                /* the node's children have already been visited; pop
+                 * the node off the stack and decrease the level. */
+                level[n] = --p;
+                perm[v] = n++;
+                stacksize--;
+                prev = v;
+            } else {
+                /* push children onto the stack in reverse order */
+                for (int64_t l = childptr[v+1]-1; l >= childptr[v]; l--)
+                    stack[stacksize++] = child[l];
+                p++;
+            }
+        }
+    }
+    free(stack);
+    return 0;
+}
+
+/**
+ * ‘permute_etree()’ reorders the elimination tree based on a given
+ * permutation of its nodes.
+ */
+static int permute_etree(
+    int64_t N,
+    int64_t * parent,
+    int64_t * childptr,
+    int64_t * child,
+    const int64_t * perm,
+    const int64_t * origparent)
+{
+    for (int64_t k = 0; k < N; k++) {
+        if (origparent[k] >= 0) parent[perm[k]] = perm[origparent[k]];
+        else parent[perm[k]] = -1;
+    }
+    for (int64_t k = 0; k <= N; k++) childptr[k] = 0;
+    for (int64_t k = 0; k < N; k++) { if (parent[k] >= 0) childptr[parent[k]+1]++; }
+    for (int64_t k = 1; k <= N; k++) childptr[k] += childptr[k-1];
+    for (int64_t k = 0; k < N; k++) {
+        if (parent[k] < 0) continue;
+        child[childptr[parent[k]]] = k;
+        childptr[parent[k]]++;
+    }
+    for (int64_t k = N; k > 0; k--) childptr[k] = childptr[k-1];
+    childptr[0] = 0;
+
+    /* if needed, sort the edges of every vertex */
+#ifdef WITH_OPENMP
+    #pragma omp for
+#endif
+    for (int64_t i = 0; i < N; i++) {
+        bool sorted = true;
+        for (int64_t k = childptr[i]+1; k < childptr[i+1]; k++) {
+            if (child[k-1] >= child[k]) { sorted = false; break; }
+        }
+        if (sorted) continue;
+        for (int64_t k = childptr[i]+1; k < childptr[i+1]; k++) {
+            int64_t j = child[k];
+            int64_t l = k-1;
+            while (l >= childptr[i] && child[l] > j) {
+                child[l+1] = child[l];
+                l--;
+            }
+            child[l+1] = j;
+        }
+    }
+    return 0;
+}
+
+/**
+ * ‘permute()’ reorders a graph given a permutation of its nodes.
+ *
+ * The original graph is provided in the form of a sparse matrix in
+ * compressed sparse row format. This means that a graph of ‘N’
+ * vertices is represented by an array ‘origrowptr’ of length ‘N+1’
+ * and another array ‘origcolidx’ of length ‘rowptr[N]’.
+ *
+ * The permuted graph is similarly stored as a sparse matrix in
+ * compressed sparse row format using the array ‘rowptr’, which must
+ * be of length ‘N+1’, and the array ‘colidx’, which must be of length
+ * ‘origrowptr[N]’.
+ */
+static int permute(
+    int64_t N,
+    int64_t * rowptr,
+    int64_t * colidx,
+    const int64_t * perm,
+    const int64_t * origrowptr,
+    const int64_t * origcolidx)
+{
+    rowptr[0] = 0;
+    for (int64_t i = 0; i < N; i++) rowptr[perm[i]+1] = origrowptr[i+1]-origrowptr[i];
+    for (int64_t i = 1; i <= N; i++) rowptr[i] += rowptr[i-1];
+    for (int64_t i = 0; i < N; i++) {
+        for (int64_t k = origrowptr[i]; k < origrowptr[i+1]; k++) {
+            int64_t j = origcolidx[k];
+            colidx[rowptr[perm[i]]] = perm[j];
+            rowptr[perm[i]]++;
+        }
+    }
+    for (int64_t i = N; i > 0; i--) rowptr[i] = rowptr[i-1];
+    rowptr[0] = 0;
+
+    /* if needed, sort the edges of every vertex */
+#ifdef WITH_OPENMP
+    #pragma omp for
+#endif
+    for (int64_t i = 0; i < N; i++) {
+        bool sorted = true;
+        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
+            if (colidx[k-1] >= colidx[k]) { sorted = false; break; }
+        }
+        if (sorted) continue;
+        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
+            int64_t j = colidx[k];
+            int64_t l = k-1;
+            while (l >= rowptr[i] && colidx[l] > j) {
+                colidx[l+1] = colidx[l];
+                l--;
+            }
+            colidx[l+1] = j;
         }
     }
     return 0;
@@ -1511,6 +1738,174 @@ int main(int argc, char *argv[])
                 timespec_duration(t0, t1), num_rows, num_columns, Asize+Adiagsize, rowsizemin, rowsizemax);
     }
 
+    /* if requested, compute fill-in and exit */
+    if (args.fillcount) {
+        if (args.verbose > 0) {
+            fprintf(stderr, "computing fill-in: ");
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+        }
+        free(Ad); free(A);
+
+        /* compute the elimination tree */
+        int64_t * parent = malloc(num_rows * sizeof(int64_t));
+        if (!parent) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        int64_t * childptr = malloc((num_rows+1) * sizeof(int64_t));
+        if (!childptr) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        int64_t * child = malloc(num_rows * sizeof(int64_t));
+        if (!child) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        etree(num_rows, parent, childptr, child, Arowptr, Acolidx);
+
+        /* compute a postorder of the elimination tree */
+        int64_t * perm = malloc(num_rows * sizeof(int64_t));
+        if (!perm) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        int64_t * level = malloc(num_rows * sizeof(int64_t));
+        if (!level) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(perm); free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        err = postorder(num_rows, perm, level, parent, childptr, child);
+        if (err) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(err));
+            free(perm); free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+
+        /* permute the elimination tree according to the
+         * post-ordering */
+        int64_t * origparent = parent;
+        parent = malloc(num_rows * sizeof(int64_t));
+        if (!parent) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(perm); free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        permute_etree(num_rows, parent, childptr, child, perm, origparent);
+        free(origparent);
+
+        /* permute the rows and columns of the matrix according to the
+         * post-ordering of the elimination tree */
+        int64_t * Browptr = malloc((num_rows+1) * sizeof(int64_t));
+        if (!Browptr) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(perm); free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        int64_t * Bcolidx = malloc(Asize * sizeof(int64_t));
+        if (!Bcolidx) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(Browptr);
+            free(perm); free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        permute(num_rows, Browptr, Bcolidx, perm, Arowptr, Acolidx);
+        free(perm); free(Acolidx); free(Arowptr);
+
+        /*
+         * compute the row counts
+         *
+         * John R. Gilbert, Esmond G. Ng, and Barry W. Peyton
+         * (1994). “An Efficient Algorithm to Compute Row and Column
+         * Counts for Sparse Cholesky Factorization.” SIAM Journal on
+         * Matrix Analysis and Applications, vol. 15, no. 4.
+         * DOI: 10.1137/S089547989223692.
+         *
+         * Davis, Timothy A., Rajamanickam, Sivasankaran, and
+         * Sid-Lakhdar, Wissam M. (2016). “A survey of direct methods
+         * for sparse linear systems”. Acta numerica, vol. 25,
+         * pp. 383–566. DOI: 10.1017/S0962492916000076.
+         */
+        int64_t * rowcounts = malloc(num_rows * sizeof(int64_t));
+        if (!rowcounts) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(errno));
+            free(Bcolidx); free(Browptr);
+            free(child); free(childptr); free(parent);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
+        int64_t Ldiagsize = num_rows;
+        int64_t Loffdiagsize = 0;
+        for (int64_t u = 0; u < num_rows; u++) {
+            rowcounts[u] = 1;
+            for (int64_t l = Browptr[u]; l < Browptr[u+1]; l++) {
+                int64_t p = Bcolidx[l];
+                int64_t pp = l < Browptr[u+1]-1 ? Bcolidx[l+1] : u;
+
+                /* find the least common ancestor of p and its
+                 * successor pp in the elimination tree. */
+                int64_t q = p, r = pp;
+                while (q >= 0 && r >= 0 && q != r) {
+                    if (q < r) q = parent[q];
+                    else r = parent[r];
+                }
+                rowcounts[u] += level[p];
+                if (q >= 0) rowcounts[u] -= level[q];
+            }
+            Loffdiagsize += rowcounts[u]-1;
+        }
+
+        if (args.verbose > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "%'.6f seconds, %'.3f Mnz/s, "
+                    "%'"PRId64" nonzeros, %'"PRId64" fill-in (nonzeros), "
+                    "%'.3f fill-ratio\n",
+                    timespec_duration(t0, t1),
+                    (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1),
+                    Ldiagsize+Loffdiagsize,
+                    Loffdiagsize-Asize,
+                    Loffdiagsize / (double) Asize);
+        }
+        free(rowcounts);
+        free(Bcolidx); free(Browptr);
+        free(level);
+        free(child); free(childptr); free(parent);
+        program_options_free(&args);
+        return EXIT_SUCCESS;
+    }
+
     /* 4. prepare for Cholesky factorisation */
     if (args.verbose > 0) {
         fprintf(stderr, "allocating storage for cholesky factorisation: ");
@@ -1585,7 +1980,7 @@ int main(int argc, char *argv[])
 
     if (args.verbose > 0) {
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        fprintf(stderr, "%'.6f seconds, %'.3f MB initial allocation for cholesky factor (fill-ratio: %'.3f) \n",
+        fprintf(stderr, "%'.6f seconds, %'.3f MB initial allocation for cholesky factor (fill-ratio: %'.3f)\n",
                 timespec_duration(t0, t1), 1.0e-6*Lallocsize*Lelemsize, args.fillfactor);
     }
 
@@ -1672,8 +2067,8 @@ int main(int argc, char *argv[])
                 (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1),
                 (double) num_flops * 1e-6 / (double) timespec_duration(t0, t1),
                 Ldiagsize+Lrowptr[num_rows],
-                Lrowptr[num_rows] - Arowptr[num_rows],
-                Lrowptr[num_rows] / (double) Arowptr[num_rows],
+                Lrowptr[num_rows] - Asize,
+                Lrowptr[num_rows] / (double) Asize,
                 1.0e-6*(Lallocsize-Lrowptr[num_rows])*Lelemsize);
     }
 
