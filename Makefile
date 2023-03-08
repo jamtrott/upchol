@@ -18,7 +18,7 @@
 #
 # Authors: James D. Trotter <james@simula.no>
 #
-# Last modified: 2023-02-27
+# Last modified: 2023-03-08
 #
 # Benchmark program for sparse Cholesky factorization.
 
@@ -29,11 +29,7 @@ clean:
 	rm -f $(upchol_c_objects) $(upchol)
 .PHONY: all clean
 
-ifndef NO_OPENMP
-CFLAGS ?= -fopenmp -DWITH_OPENMP -g -Wall
-else
-CFLAGS ?= -g -Wall
-endif
+CFLAGS ?= -fopenmp -O2 -g -Wall
 LDFLAGS ?= -lm -lz
 
 upchol_c_sources = upchol.c

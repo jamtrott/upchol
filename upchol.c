@@ -27,7 +27,7 @@
 
 #include <errno.h>
 
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
 #include <omp.h>
 #endif
 
@@ -603,7 +603,7 @@ static int csr_from_coo_size(
     bool lower,
     bool separate_diagonal)
 {
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp for
 #endif
     for (int64_t i = 0; i < num_rows; i++) rowptr[i] = 0;
@@ -759,7 +759,7 @@ static int csr_from_coo(
     rowptr[0] = 0;
 
     /* if needed, sort the nonzeros in every row */
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp for
 #endif
     for (int64_t i = 0; i < num_rows; i++) {
@@ -927,7 +927,7 @@ static int permute_etree(
     childptr[0] = 0;
 
     /* if needed, sort the edges of every vertex */
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp for
 #endif
     for (int64_t i = 0; i < N; i++) {
@@ -984,7 +984,7 @@ static int permute(
     rowptr[0] = 0;
 
     /* if needed, sort the edges of every vertex */
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp for
 #endif
     for (int64_t i = 0; i < N; i++) {
@@ -1679,7 +1679,7 @@ int main(int argc, char *argv[])
         program_options_free(&args);
         return EXIT_FAILURE;
     }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < num_rows; i++) {
@@ -1705,12 +1705,12 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
     if (Adiagsize > 0) {
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
         for (int64_t i = 0; i < num_rows; i++) Ad[i] = 0;
     }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < num_rows; i++) {
@@ -1920,7 +1920,7 @@ int main(int argc, char *argv[])
         program_options_free(&args);
         return EXIT_FAILURE;
     }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < num_rows; i++) Lrowptr[i] = 0;
@@ -1961,7 +1961,7 @@ int main(int argc, char *argv[])
             program_options_free(&args);
             return EXIT_FAILURE;
         }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
         for (int64_t i = 0; i < num_rows; i++) Ld[i] = 0;
@@ -2167,14 +2167,14 @@ int main(int argc, char *argv[])
             program_options_free(&args);
             return EXIT_FAILURE;
         }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
         for (int64_t i = 0; i < num_rows; i++) {
             for (int64_t k = Browptr[i]; k < Browptr[i+1]; k++)
                 B[k] = 0;
         }
-#ifdef WITH_OPENMP
+#ifdef _OPENMP
 #pragma omp parallel for
 #endif
         for (int64_t i = 0; i < num_rows; i++) Bd[i] = 0;
