@@ -760,7 +760,7 @@ static int csr_from_coo(
 
     /* if needed, sort the nonzeros in every row */
 #ifdef _OPENMP
-    #pragma omp for
+    #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < num_rows; i++) {
         bool sorted = true;
@@ -768,7 +768,6 @@ static int csr_from_coo(
             if (csrcolidx[k-1] >= csrcolidx[k]) { sorted = false; break; }
         }
         if (sorted) continue;
-        fprintf(stderr, "%s: sorting row %'"PRId64"\n", program_invocation_short_name, i+1);
         for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
             int64_t j = csrcolidx[k];
             double x = csra[k];
