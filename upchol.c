@@ -812,6 +812,10 @@ static int etree(
     const int64_t * Arowptr,
     const int64_t * Acolidx)
 {
+    int64_t * root = malloc(N * sizeof(int64_t));
+    if (!root) return errno;
+    for (int64_t i = 0; i < N; i++) root[i] = -1;
+
     /*
      * compute parent node in the elimination tree:
      *
@@ -822,11 +826,13 @@ static int etree(
         parent[k] = -1;
         for (int64_t l = Arowptr[k]; l < Arowptr[k+1]; l++) {
             int64_t i = Acolidx[l];
-            int64_t t = i;
+            int64_t t = root[i] >= 0 ? root[i] : i;
             while (parent[t] >= 0 && parent[t] < k) { t = parent[t]; }
             parent[t] = k;
+            root[i] = k;
         }
     }
+    free(root);
 
     /* reverse edges to obtain children of each node */
     for (int64_t k = 0; k <= N; k++) childptr[k] = 0;
