@@ -416,6 +416,12 @@ static double timespec_duration(
         (t1.tv_nsec - t0.tv_nsec) * 1e-9;
 }
 
+volatile sig_atomic_t upchol_print_progress = 0;
+void upcholsighandler(int status)
+{
+    upchol_print_progress = 1;
+}
+
 /**
  * ‘freadline()’ reads a single line from a stream.
  */
@@ -809,11 +815,20 @@ static int etree(
     int64_t * childptr,
     int64_t * child,
     const int64_t * Arowptr,
-    const int64_t * Acolidx)
+    const int64_t * Acolidx,
+    int progress_interval,
+    struct timespec t0)
 {
     int64_t * root = malloc(N * sizeof(int64_t));
     if (!root) return errno;
     for (int64_t i = 0; i < N; i++) root[i] = -1;
+
+    struct timespec t1;
+    if (progress_interval > 0) {
+        upchol_print_progress = 0;
+        signal(SIGALRM, upcholsighandler);
+        alarm(progress_interval);
+    }
 
     /*
      * compute parent node in the elimination tree:
@@ -822,6 +837,15 @@ static int etree(
      * a descendant of k in the next tree T_k.
      */
     for (int64_t k = 0; k < N; k++) {
+
+        if (progress_interval > 0 && upchol_print_progress) {
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                    k, N, 100.0*(k/(double)N), timespec_duration(t0, t1));
+            upchol_print_progress = 0;
+            alarm(progress_interval);
+        }
+
         parent[k] = -1;
         for (int64_t l = Arowptr[k]; l < Arowptr[k+1]; l++) {
             int64_t i = Acolidx[l];
@@ -831,6 +855,16 @@ static int etree(
             root[i] = k;
         }
     }
+
+    if (progress_interval > 0) {
+        alarm(0);
+        signal(SIGALRM, SIG_DFL);
+        upchol_print_progress = 0;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        fprintf(stderr, "processed %'"PRId64" of %'"PRId64" rows (%4.1f %%) in %'.6f seconds\n",
+                N, N, 100.0, timespec_duration(t0, t1));
+    }
+
     free(root);
 
     /* reverse edges to obtain children of each node */
@@ -1042,12 +1076,6 @@ int forwardsolvecsr(
         x[i] /= Ldiag[i];
     }
     return 0;
-}
-
-volatile sig_atomic_t upchol_print_progress = 0;
-void upcholsighandler(int status)
-{
-    upchol_print_progress = 1;
 }
 
 struct upchol
@@ -1748,7 +1776,7 @@ int main(int argc, char *argv[])
         free(Ad); free(A);
 
         if (args.verbose > 0) {
-            fprintf(stderr, "computing elimination tree: ");
+            fprintf(stderr, "computing elimination tree:\n");
             clock_gettime(CLOCK_MONOTONIC, &t0);
         }
 
@@ -1779,11 +1807,21 @@ int main(int argc, char *argv[])
             program_options_free(&args);
             return EXIT_FAILURE;
         }
-        etree(num_rows, parent, childptr, child, Arowptr, Acolidx);
+        err = etree(
+            num_rows, parent, childptr, child, Arowptr, Acolidx,
+            args.progress_interval, t0);
+        if (err) {
+            if (args.verbose > 0) fprintf(stderr, "\n");
+            fprintf(stderr, "%s: %s\n", program_invocation_short_name, strerror(err));
+            free(child); free(childptr); free(parent);
+            free(Acolidx); free(Arowptr);
+            program_options_free(&args);
+            return EXIT_FAILURE;
+        }
 
         if (args.verbose > 0) {
             clock_gettime(CLOCK_MONOTONIC, &t1);
-            fprintf(stderr, "%'.6f seconds, %'.3f Mnz/s\n",
+            fprintf(stderr, "done computing elimination tree in %'.6f seconds, %'.3f Mnz/s\n",
                     timespec_duration(t0, t1),
                     (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1));
             fprintf(stderr, "post-ordering elimination tree: ");
@@ -1944,7 +1982,7 @@ int main(int argc, char *argv[])
                     (double) num_nonzeros * 1e-6 / (double) timespec_duration(t0, t1),
                     Ldiagsize+Loffdiagsize,
                     Loffdiagsize-Asize,
-                    Loffdiagsize / (double) Asize);
+                    (Ldiagsize+Loffdiagsize) / (2.0*Asize+Adiagsize));
         }
         free(rowcounts);
         free(Bcolidx); free(Browptr);
@@ -2116,7 +2154,7 @@ int main(int argc, char *argv[])
                 (double) num_flops * 1e-6 / (double) timespec_duration(t0, t1),
                 Ldiagsize+Lrowptr[num_rows],
                 Lrowptr[num_rows] - Asize,
-                Lrowptr[num_rows] / (double) Asize,
+                (Ldiagsize+Lrowptr[num_rows]) / (2.0*Asize+Adiagsize),
                 1.0e-6*(Lallocsize-Lrowptr[num_rows])*Lelemsize);
     }
 
