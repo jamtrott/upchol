@@ -764,29 +764,27 @@ static int csr_from_coo(
     for (int64_t i = num_rows; i > 0; i--) rowptr[i] = rowptr[i-1];
     rowptr[0] = 0;
 
-    /* if needed, sort the nonzeros in every row */
-#ifdef _OPENMP
-    #pragma omp parallel for
-#endif
+    /* sort the nonzeros in every row using a counting sort */
+    int64_t * tmpcolidx = malloc(rowsizemax * sizeof(int64_t));
+    if (!tmpcolidx) return errno;
+    int64_t * bucketptr = malloc((num_columns+1) * sizeof(int64_t));
+    if (!bucketptr) { free(tmpcolidx); return errno; }
     for (int64_t i = 0; i < num_rows; i++) {
-        bool sorted = true;
-        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
-            if (csrcolidx[k-1] >= csrcolidx[k]) { sorted = false; break; }
-        }
-        if (sorted) continue;
-        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
+        for (int64_t j = 0; j <= num_columns; j++) bucketptr[j] = 0;
+        for (int64_t k = rowptr[i], l = 0; k < rowptr[i+1]; k++, l++) {
             int64_t j = csrcolidx[k];
-            double x = csra[k];
-            int64_t l = k-1;
-            while (l >= rowptr[i] && csrcolidx[l] > j) {
-                csrcolidx[l+1] = csrcolidx[l];
-                csra[l+1] = csra[l];
-                l--;
-            }
-            csrcolidx[l+1] = j;
-            csra[l+1] = x;
+            tmpcolidx[l] = j;
+            bucketptr[j+1]++;
+        }
+        for (int64_t j = 0; j < num_columns; j++) bucketptr[j+1] += bucketptr[j];
+        for (int64_t k = rowptr[i], l = 0; k < rowptr[i+1]; k++, l++) {
+            int64_t j = tmpcolidx[l];
+            int64_t dest = bucketptr[j];
+            csrcolidx[rowptr[i]+dest] = j;
+            bucketptr[j]++;
         }
     }
+    free(tmpcolidx); free(bucketptr);
     return 0;
 }
 

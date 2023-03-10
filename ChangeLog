@@ -1,3 +1,12 @@
+2023-03-10  James D. Trotter  <james@simula.no>
+
+	* upchol.c: use a counting sort to sort nonzeros within each row
+	during conversion to compressed sparse row
+
+2023-03-08  James D. Trotter  <james@simula.no>
+
+	add '--fill-count' option for computing the amount of fill
+
 2023-02-27  James D. Trotter  <james@simula.no>
 
 	* upchol.c: add support for loading gzip-compressed matrices
