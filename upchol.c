@@ -769,11 +769,6 @@ static int csr_from_coo(
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < num_rows; i++) {
-        bool sorted = true;
-        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
-            if (csrcolidx[k-1] >= csrcolidx[k]) { sorted = false; break; }
-        }
-        if (sorted) continue;
         for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
             int64_t j = csrcolidx[k];
             double x = csra[k];
@@ -970,11 +965,6 @@ static int permute_etree(
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < N; i++) {
-        bool sorted = true;
-        for (int64_t k = childptr[i]+1; k < childptr[i+1]; k++) {
-            if (child[k-1] >= child[k]) { sorted = false; break; }
-        }
-        if (sorted) continue;
         for (int64_t k = childptr[i]+1; k < childptr[i+1]; k++) {
             int64_t j = child[k];
             int64_t l = k-1;
@@ -1027,11 +1017,6 @@ static int permute(
     #pragma omp parallel for
 #endif
     for (int64_t i = 0; i < N; i++) {
-        bool sorted = true;
-        for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
-            if (colidx[k-1] >= colidx[k]) { sorted = false; break; }
-        }
-        if (sorted) continue;
         for (int64_t k = rowptr[i]+1; k < rowptr[i+1]; k++) {
             int64_t j = colidx[k];
             int64_t l = k-1;
