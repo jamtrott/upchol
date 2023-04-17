@@ -1753,7 +1753,7 @@ int main(int argc, char *argv[])
         clock_gettime(CLOCK_MONOTONIC, &t1);
         fprintf(stderr, "%'.6f seconds, %'"PRId64" rows, %'"PRId64" columns, %'"PRId64" nonzeros"
                 ", %'"PRId64" to %'"PRId64" nonzeros per row\n",
-                timespec_duration(t0, t1), num_rows, num_columns, Asize+Adiagsize, rowsizemin, rowsizemax);
+                timespec_duration(t0, t1), num_rows, num_columns, 2*Asize+Adiagsize, rowsizemin, rowsizemax);
     }
 
     /* if requested, compute fill-in and exit */
